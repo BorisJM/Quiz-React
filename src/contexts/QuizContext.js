@@ -1,0 +1,147 @@
+import { createContext, useContext, useEffect, useReducer } from "react";
+
+const initialState = {
+  questions: [],
+  originalQuestions: [],
+  // loading, error, ready, active, finished
+  status: "loading",
+  index: 0,
+  answer: null,
+  points: 0,
+  highscore: 0,
+  secondsRemaining: null,
+};
+
+const SECS_PER_QUESTION = 30;
+
+function reducer(state, action) {
+  switch (action.type) {
+    case "dataReceived":
+      return {
+        ...state,
+        questions: action.payload,
+        originalQuestions: action.payload,
+        status: "ready",
+      };
+    case "dataFailed":
+      return {
+        ...state,
+        status: "error",
+      };
+    case "start":
+      return {
+        ...state,
+        questions: state.questions.slice(0, state.numOfQuestions),
+        status: "active",
+        secondsRemaining: state.questions.length * SECS_PER_QUESTION,
+      };
+    case "newAnswer":
+      const question = state.questions.at(state.index);
+      return {
+        ...state,
+        answer: action.payload,
+        points:
+          action.payload === question.correctOption
+            ? state.points + question.points
+            : state.points,
+      };
+    case "nextQuestion":
+      return { ...state, index: state.index + 1, answer: null };
+    case "finish":
+      return {
+        ...state,
+        status: "finished",
+        highscore:
+          state.points > state.highscore ? state.points : state.highscore,
+      };
+    case "restart":
+      return {
+        ...initialState,
+        highscore: state.highscore,
+        originalQuestions: state.originalQuestions,
+        questions: state.originalQuestions,
+        status: "ready",
+      };
+    case "tick":
+      return {
+        ...state,
+        secondsRemaining: state.secondsRemaining - 1,
+        status: state.secondsRemaining === 0 ? "finished" : state.status,
+      };
+    case "difficulty":
+      return {
+        ...state,
+        questions: action.payload,
+      };
+    case "numQuestions":
+      return {
+        ...state,
+        numOfQuestions: action.payload,
+      };
+    default:
+      throw new Error("Action is unknown");
+  }
+}
+
+const QuizContext = createContext();
+function QuizProvider({ children }) {
+  const [
+    {
+      questions,
+      status,
+      index,
+      answer,
+      points,
+      highscore,
+      secondsRemaining,
+      originalQuestions,
+    },
+    dispatch,
+  ] = useReducer(reducer, initialState);
+  const numQuestions = questions.length;
+  const maxPossiblePoints = questions.reduce(
+    (prev, cur) => prev + cur.points,
+    0
+  );
+
+  useEffect(function () {
+    fetch("http://localhost:9000/questions")
+      .then((res) => res.json())
+      .then((data) =>
+        dispatch({
+          type: "dataReceived",
+          payload: data,
+        })
+      )
+      .catch((error) => dispatch({ type: "dataFailed" }));
+  }, []);
+
+  return (
+    <QuizContext.Provider
+      value={{
+        questions,
+        status,
+        index,
+        answer,
+        points,
+        highscore,
+        secondsRemaining,
+        originalQuestions,
+        dispatch,
+        numQuestions,
+        maxPossiblePoints,
+      }}
+    >
+      {children}
+    </QuizContext.Provider>
+  );
+}
+
+function QuizHook() {
+  const context = useContext(QuizContext);
+  if (context === undefined)
+    throw new Error("Trying to use context outside of the component");
+  return context;
+}
+
+export { QuizProvider, QuizHook };
